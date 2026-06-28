@@ -41,15 +41,21 @@ export default function Page() {
   const groups = groupByNetwork(rows);
   const reallocs = redeploy(agg);
 
+  const [query, setQuery] = useState("");
+  const [userMsg, setUserMsg] = useState("");
+  const [running, setRunning] = useState(false);
   const [doneSteps, setDoneSteps] = useState(0);
   const [showFigures, setShowFigures] = useState(false);
   const [full, setFull] = useState("");
   const [typed, setTyped] = useState("");
   const [err, setErr] = useState<"none" | "no_key" | "api_error">("none");
   const [done, setDone] = useState(false);
-  const started = useRef(false);
+  const runId = useRef(0);
 
-  async function run() {
+  async function run(prompt: string) {
+    const id = ++runId.current;
+    setRunning(true);
+    setUserMsg(prompt);
     setDoneSteps(0);
     setShowFigures(false);
     setFull("");
@@ -58,40 +64,42 @@ export default function Page() {
     setDone(false);
 
     await wait(450);
+    if (id !== runId.current) return;
     setDoneSteps(1);
     await wait(650);
+    if (id !== runId.current) return;
     setDoneSteps(2);
     await wait(550);
+    if (id !== runId.current) return;
     setShowFigures(true);
     await wait(350);
+    if (id !== runId.current) return;
     setDoneSteps(3);
 
     try {
       const res = await fetch("/api/analyze", { method: "POST" });
       const json = await res.json();
+      if (id !== runId.current) return;
       if (json.error === "no_key") {
         setErr("no_key");
         setDone(true);
+        setRunning(false);
         return;
       }
-      if (json.error) {
-        setErr("api_error");
+      if (json.error || !json.narration) {
+        setErr(json.error ? "api_error" : "none");
         setDone(true);
+        setRunning(false);
         return;
       }
-      setFull(json.narration || "");
+      setFull(json.narration);
     } catch {
+      if (id !== runId.current) return;
       setErr("api_error");
       setDone(true);
+      setRunning(false);
     }
   }
-
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    run();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // effet machine à écrire
   useEffect(() => {
@@ -103,10 +111,17 @@ export default function Page() {
       if (i >= full.length) {
         clearInterval(id);
         setDone(true);
+        setRunning(false);
       }
     }, 12);
     return () => clearInterval(id);
   }, [full]);
+
+  function submit() {
+    const q = query.trim();
+    if (!q || running) return;
+    run(q);
+  }
 
   return (
     <div className="app">
@@ -114,15 +129,19 @@ export default function Page() {
       <aside className="copilot">
         <div className="cp-head">
           <div className="org">
-            <span className="org-badge">A.</span> Acme Corp <span className="caret">▾</span>
+            <span className="org-badge">A.</span> Acme Corp
           </div>
         </div>
         <div className="cp-title">Daily check — réallocation budget</div>
 
         <div className="cp-thread">
-          <div className="bubble user">
-            Où réallouer le budget aujourd&apos;hui pour remonter le ROAS blended ?
-          </div>
+          {!userMsg && (
+            <div className="empty-hint">
+              Pose une question pour lancer le daily check.
+            </div>
+          )}
+
+          {userMsg && <div className="bubble user">{userMsg}</div>}
 
           {STEPS.map(
             (s, i) =>
@@ -166,7 +185,7 @@ export default function Page() {
             </div>
           )}
 
-          {done && err === "none" && (
+          {done && err === "none" && full && (
             <div className="actions">
               {agg.cut.map((c) => (
                 <div className="action-row" key={c.name}>
@@ -187,8 +206,16 @@ export default function Page() {
         </div>
 
         <div className="cp-input">
-          <input placeholder="Analyser, planifier, exécuter…" readOnly onClick={run} />
-          <button className="send" onClick={run} title="Relancer le daily check">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submit();
+            }}
+            placeholder="Analyze, plan, deliver anything"
+            disabled={running}
+          />
+          <button className="send" onClick={submit} disabled={running} title="Envoyer">
             ↑
           </button>
         </div>
@@ -196,11 +223,7 @@ export default function Page() {
 
       {/* ---------------- Board ---------------- */}
       <main className="board">
-        <div className="tabs">
-          <span className="tab active">≡ Campaigns</span>
-          <span className="tab">▢ Creatives</span>
-          <span className="tab">◳ Views</span>
-        </div>
+        <div className="board-head">Campaigns</div>
 
         <div className="grid-wrap">
           <table className="grid">
@@ -287,7 +310,6 @@ function CampRow({ row }: { row: Row }) {
         <span className={"delta " + (row.revenueDelta >= 0 ? "up" : "down")}>
           {fmtDelta(row.revenueDelta)}
         </span>
-        <div className="sub-cell">CA</div>
       </td>
       <td className="num">
         <span className={"roas " + row.action}>{fmtRoas(row.roas)}</span>
