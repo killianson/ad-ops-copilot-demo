@@ -35,6 +35,9 @@ const STEPS = [
   "Synthèse et recommandation de réallocation…",
 ];
 
+const SUGGESTION =
+  "Daily check : où réallouer le budget aujourd'hui pour remonter le ROAS blended ?";
+
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export default function Page() {
@@ -204,6 +207,20 @@ export default function Page() {
             </div>
           )}
         </div>
+
+        {!running && (
+          <div
+            className="suggestion"
+            onClick={() => {
+              setQuery(SUGGESTION);
+              run(SUGGESTION);
+            }}
+            title="Cliquer pour lancer"
+          >
+            <span className="sug-ic">💡</span>
+            <span>{SUGGESTION}</span>
+          </div>
+        )}
 
         <div className="cp-input">
           <input
