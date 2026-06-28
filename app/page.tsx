@@ -8,7 +8,6 @@ import {
   groupByNetwork,
   redeploy,
   type Row,
-  type Action,
 } from "@/lib/metrics";
 import { MetaLogo, GoogleAdsLogo, TikTokLogo } from "./logos";
 
@@ -21,12 +20,6 @@ const NET: Record<Network, { label: string; Logo: ({ size }: { size?: number }) 
   Meta: { label: "Meta Ads", Logo: MetaLogo },
   Google: { label: "Google Ads", Logo: GoogleAdsLogo },
   TikTok: { label: "TikTok Ads", Logo: TikTokLogo },
-};
-
-const STATUS: Record<Action, { icon: string; cls: string }> = {
-  scale: { icon: "▶", cls: "st-scale" },
-  watch: { icon: "◔", cls: "st-watch" },
-  cut: { icon: "⏸", cls: "st-cut" },
 };
 
 const STEPS = [
@@ -45,16 +38,28 @@ export default function Page() {
   const agg = computeAggregates(rows);
   const groups = groupByNetwork(rows);
   const reallocs = redeploy(agg);
+  const reallocMap: Record<string, number> = Object.fromEntries(
+    reallocs.map((r) => [r.name, r.amount]),
+  );
+
+  // Actions proposées par l'agent (déterministes) — à valider par l'utilisateur.
+  const proposed: { name: string; type: "pause" | "boost"; amount?: number }[] = [
+    ...agg.cut.map((c) => ({ name: c.name, type: "pause" as const })),
+    ...reallocs.map((r) => ({ name: r.name, type: "boost" as const, amount: r.amount })),
+  ];
 
   const [query, setQuery] = useState("");
   const [userMsg, setUserMsg] = useState("");
   const [running, setRunning] = useState(false);
   const [doneSteps, setDoneSteps] = useState(0);
   const [showFigures, setShowFigures] = useState(false);
+  const [analysisReady, setAnalysisReady] = useState(false);
   const [full, setFull] = useState("");
   const [typed, setTyped] = useState("");
   const [err, setErr] = useState<"none" | "no_key" | "api_error">("none");
   const [done, setDone] = useState(false);
+  // Validation humaine : une action ne modifie le tableau que si elle est validée.
+  const [validated, setValidated] = useState<Record<string, boolean>>({});
   const runId = useRef(0);
 
   async function run(prompt: string) {
@@ -63,6 +68,8 @@ export default function Page() {
     setUserMsg(prompt);
     setDoneSteps(0);
     setShowFigures(false);
+    setAnalysisReady(false);
+    setValidated({});
     setFull("");
     setTyped("");
     setErr("none");
@@ -80,6 +87,7 @@ export default function Page() {
     await wait(350);
     if (id !== runId.current) return;
     setDoneSteps(3);
+    setAnalysisReady(true); // les actions proposées peuvent s'afficher (indépendant du LLM)
 
     try {
       const res = await fetch("/api/analyze", { method: "POST" });
@@ -127,6 +135,12 @@ export default function Page() {
     if (!q || running) return;
     run(q);
   }
+
+  const toggle = (name: string) =>
+    setValidated((v) => ({ ...v, [name]: !v[name] }));
+  const validateAll = () =>
+    setValidated(Object.fromEntries(proposed.map((p) => [p.name, true])));
+  const validatedCount = proposed.filter((p) => validated[p.name]).length;
 
   return (
     <div className="app">
@@ -177,8 +191,8 @@ export default function Page() {
           {err === "no_key" && (
             <div className="bubble assistant err">
               ⚠ Clé API manquante (<code>ANTHROPIC_API_KEY</code>). Le tableau et les chiffres
-              ci-contre restent exacts — ils sont calculés, pas générés. Ajoute la clé dans les
-              variables d&apos;environnement Vercel pour activer la rédaction IA de la reco.
+              restent exacts — ils sont calculés, pas générés. Ajoute la clé dans les variables
+              d&apos;environnement Vercel pour activer la rédaction IA de la reco.
             </div>
           )}
           {err === "api_error" && (
@@ -188,22 +202,34 @@ export default function Page() {
             </div>
           )}
 
-          {done && err === "none" && full && (
+          {analysisReady && (
             <div className="actions">
-              {agg.cut.map((c) => (
-                <div className="action-row" key={c.name}>
-                  <span className="tag cut">PAUSE</span>
-                  <span className="nm">{c.name}</span>
-                  <span className="chk">✓</span>
-                </div>
-              ))}
-              {reallocs.map((r) => (
-                <div className="action-row" key={r.name}>
-                  <span className="tag up">+{fmtMoney(r.amount)}/j</span>
-                  <span className="nm">{r.name}</span>
-                  <span className="chk">✓</span>
-                </div>
-              ))}
+              <div className="actions-head">
+                <span>
+                  Actions proposées — {validatedCount}/{proposed.length} validées
+                </span>
+                <button
+                  className="validate-all"
+                  onClick={validateAll}
+                  disabled={validatedCount === proposed.length}
+                >
+                  Tout valider
+                </button>
+              </div>
+              {proposed.map((p) => {
+                const on = !!validated[p.name];
+                return (
+                  <div className={"action-row" + (on ? " on" : "")} key={p.name}>
+                    <span className={"tag " + (p.type === "pause" ? "cut" : "up")}>
+                      {p.type === "pause" ? "PAUSE" : "+" + fmtMoney(p.amount!) + "/j"}
+                    </span>
+                    <span className="nm">{p.name}</span>
+                    <button className={"apply-btn" + (on ? " applied" : "")} onClick={() => toggle(p.name)}>
+                      {on ? "✓ Appliqué" : "Appliquer"}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -275,7 +301,12 @@ export default function Page() {
                       <td className="num">{fmtMoney(g.costPerResult)}</td>
                     </tr>
                     {g.rows.map((r) => (
-                      <CampRow row={r} key={r.name} />
+                      <CampRow
+                        row={r}
+                        key={r.name}
+                        paused={!!validated[r.name] && r.action === "cut"}
+                        boost={validated[r.name] ? reallocMap[r.name] : undefined}
+                      />
                     ))}
                   </Fragment>
                 );
@@ -307,14 +338,22 @@ function Fig({ k, v, good }: { k: string; v: string; good?: boolean }) {
   );
 }
 
-function CampRow({ row }: { row: Row }) {
+function CampRow({ row, paused, boost }: { row: Row; paused: boolean; boost?: number }) {
   return (
-    <tr className={"camp " + row.action}>
+    <tr className={"camp" + (paused ? " is-paused" : "")}>
       <td>
-        <span className="nm">{row.name}</span>
+        <span className="camp-name">
+          <span className="nm">{row.name}</span>
+          {paused && <span className="paused-chip">en pause</span>}
+          {boost ? <span className="alloc-chip">+{fmtMoney(boost)}/j</span> : null}
+        </span>
       </td>
       <td>
-        <span className={"status " + STATUS[row.action].cls}>{STATUS[row.action].icon}</span>
+        {paused ? (
+          <span className="status st-paused" title="En pause">⏸</span>
+        ) : (
+          <span className="status st-active" title="Active">▶</span>
+        )}
       </td>
       <td className="num">
         <span className="cell-main">{fmtMoney(row.spend)}</span>{" "}
