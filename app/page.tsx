@@ -9,7 +9,7 @@ import {
   redeploy,
   type Row,
 } from "@/lib/metrics";
-import { MetaLogo, GoogleAdsLogo, TikTokLogo } from "./logos";
+import { MetaLogo, GoogleAdsLogo, TikTokLogo, ArrowUpIcon } from "./logos";
 
 const fmtMoney = (n: number) => "€" + Math.round(n).toLocaleString("fr-FR");
 const fmtInt = (n: number) => Math.round(n).toLocaleString("fr-FR");
@@ -29,7 +29,10 @@ const STEPS = [
 ];
 
 const SUGGESTION =
-  "Daily check : où réallouer le budget aujourd'hui pour remonter le ROAS blended ?";
+  "Daily check : où réallouer le budget aujourd'hui pour remonter le blended ROAS ?";
+
+// Action proposée par l'agent puis transcrite en bouton interactif.
+type Proposed = { name: string; type: "pause" | "boost"; amount?: number };
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -42,8 +45,9 @@ export default function Page() {
     reallocs.map((r) => [r.name, r.amount]),
   );
 
-  // Actions proposées par l'agent (déterministes) — à valider par l'utilisateur.
-  const proposed: { name: string; type: "pause" | "boost"; amount?: number }[] = [
+  // Fallback déterministe si l'IA n'a pas répondu (pas de clé / erreur API).
+  // Sinon, les actions affichées viennent du tool call de l'agent (state aiActions).
+  const fallbackActions: Proposed[] = [
     ...agg.cut.map((c) => ({ name: c.name, type: "pause" as const })),
     ...reallocs.map((r) => ({ name: r.name, type: "boost" as const, amount: r.amount })),
   ];
@@ -53,14 +57,45 @@ export default function Page() {
   const [running, setRunning] = useState(false);
   const [doneSteps, setDoneSteps] = useState(0);
   const [showFigures, setShowFigures] = useState(false);
-  const [analysisReady, setAnalysisReady] = useState(false);
   const [full, setFull] = useState("");
   const [typed, setTyped] = useState("");
   const [err, setErr] = useState<"none" | "no_key" | "api_error">("none");
   const [done, setDone] = useState(false);
+  // Actions proposées par l'agent (tool call) — null tant que l'IA n'a pas répondu.
+  const [aiActions, setAiActions] = useState<Proposed[] | null>(null);
   // Validation humaine : une action ne modifie le tableau que si elle est validée.
   const [validated, setValidated] = useState<Record<string, boolean>>({});
   const runId = useRef(0);
+
+  // Largeur ajustable du chat (drag sur le séparateur).
+  const [chatWidth, setChatWidth] = useState(360);
+  const dragging = useRef(false);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragging.current) return;
+      const w = Math.min(640, Math.max(300, e.clientX - 14));
+      setChatWidth(w);
+    };
+    const onUp = () => {
+      if (!dragging.current) return;
+      dragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
+  const startDrag = () => {
+    dragging.current = true;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
 
   async function run(prompt: string) {
     const id = ++runId.current;
@@ -68,7 +103,7 @@ export default function Page() {
     setUserMsg(prompt);
     setDoneSteps(0);
     setShowFigures(false);
-    setAnalysisReady(false);
+    setAiActions(null);
     setValidated({});
     setFull("");
     setTyped("");
@@ -87,12 +122,14 @@ export default function Page() {
     await wait(350);
     if (id !== runId.current) return;
     setDoneSteps(3);
-    setAnalysisReady(true); // les actions proposées peuvent s'afficher (indépendant du LLM)
 
     try {
       const res = await fetch("/api/analyze", { method: "POST" });
       const json = await res.json();
       if (id !== runId.current) return;
+      // Actions transcrites depuis le tool call de l'agent (montants déjà imposés
+      // par le moteur côté serveur). Si absentes → on garde le fallback déterministe.
+      setAiActions(Array.isArray(json.actions) && json.actions.length ? json.actions : null);
       if (json.error === "no_key") {
         setErr("no_key");
         setDone(true);
@@ -136,28 +173,27 @@ export default function Page() {
     run(q);
   }
 
+  // Actions affichées = celles de l'agent si dispo, sinon fallback déterministe.
+  const shownActions = aiActions ?? fallbackActions;
   const toggle = (name: string) =>
     setValidated((v) => ({ ...v, [name]: !v[name] }));
   const validateAll = () =>
-    setValidated(Object.fromEntries(proposed.map((p) => [p.name, true])));
-  const validatedCount = proposed.filter((p) => validated[p.name]).length;
+    setValidated(Object.fromEntries(shownActions.map((p) => [p.name, true])));
+  const validatedCount = shownActions.filter((p) => validated[p.name]).length;
 
   return (
-    <div className="app">
+    <div
+      className="app"
+      style={{ gridTemplateColumns: `${chatWidth}px 16px 1fr` }}
+    >
       {/* ---------------- Copilot ---------------- */}
       <aside className="copilot">
         <div className="cp-head">
           <div className="org">
-            <span className="org-badge">A.</span> Acme Corp
+            <span className="org-badge">A.</span> Ad-ops copilot demo
           </div>
         </div>
-        <div className="cp-title">Daily check — réallocation budget</div>
-
         <div className="cp-thread">
-          {!userMsg && (
-            <div className="empty-hint">Pose une question pour lancer le daily check.</div>
-          )}
-
           {userMsg && <div className="bubble user">{userMsg}</div>}
 
           {STEPS.map(
@@ -175,7 +211,7 @@ export default function Page() {
               <div className="fg-head">🧮 Chiffres clés — calculés, pas générés</div>
               <Fig k="Dépense totale" v={fmtMoney(agg.totalSpend)} />
               <Fig k="Results value (CA)" v={fmtMoney(agg.totalRevenue)} />
-              <Fig k="ROAS blended" v={fmtRoas(agg.blended)} />
+              <Fig k="blended ROAS" v={fmtRoas(agg.blended)} />
               <Fig k="Budget libéré (pauses)" v={fmtMoney(agg.freedBudget)} />
               <Fig k="ROAS projeté" v={fmtRoas(agg.projectedBlended)} good />
             </div>
@@ -202,21 +238,21 @@ export default function Page() {
             </div>
           )}
 
-          {analysisReady && (
+          {done && shownActions.length > 0 && (
             <div className="actions">
               <div className="actions-head">
                 <span>
-                  Actions proposées — {validatedCount}/{proposed.length} validées
+                  Actions proposées — {validatedCount}/{shownActions.length} validées
                 </span>
                 <button
                   className="validate-all"
                   onClick={validateAll}
-                  disabled={validatedCount === proposed.length}
+                  disabled={validatedCount === shownActions.length}
                 >
                   Tout valider
                 </button>
               </div>
-              {proposed.map((p) => {
+              {shownActions.map((p) => {
                 const on = !!validated[p.name];
                 return (
                   <div className={"action-row" + (on ? " on" : "")} key={p.name}>
@@ -259,10 +295,19 @@ export default function Page() {
             disabled={running}
           />
           <button className="send" onClick={submit} disabled={running} title="Envoyer">
-            ↑
+            <ArrowUpIcon size={15} />
           </button>
         </div>
       </aside>
+
+      {/* ---------------- Séparateur redimensionnable ---------------- */}
+      <div
+        className="resizer"
+        onMouseDown={startDrag}
+        title="Glisser pour ajuster la largeur du chat"
+      >
+        <span className="resizer-grip" />
+      </div>
 
       {/* ---------------- Board ---------------- */}
       <main className="board">
@@ -270,6 +315,14 @@ export default function Page() {
 
         <div className="grid-wrap">
           <table className="grid">
+            <colgroup>
+              <col />
+              <col className="c-status" />
+              <col className="c-num" />
+              <col className="c-num" />
+              <col className="c-num" />
+              <col className="c-num" />
+            </colgroup>
             <thead>
               <tr>
                 <th>Name</th>
@@ -295,15 +348,36 @@ export default function Page() {
                         </span>
                       </td>
                       <td></td>
-                      <td className="num">{fmtMoney(g.spend)}</td>
-                      <td className="num">{fmtInt(g.conversions)}</td>
-                      <td className="num">{fmtMoney(g.revenue)}</td>
-                      <td className="num">{fmtMoney(g.costPerResult)}</td>
+                      <td className="num">
+                        <span className="cell-main">{fmtMoney(g.spend)}</span>{" "}
+                        <span className={"delta " + (g.spendDelta >= 0 ? "up" : "down")}>
+                          {fmtDelta(g.spendDelta)}
+                        </span>
+                      </td>
+                      <td className="num">
+                        <span className="cell-main">{fmtInt(g.conversions)}</span>{" "}
+                        <span className={"delta " + (g.resultsDelta >= 0 ? "up" : "down")}>
+                          {fmtDelta(g.resultsDelta)}
+                        </span>
+                      </td>
+                      <td className="num">
+                        <span className="cell-main">{fmtMoney(g.revenue)}</span>{" "}
+                        <span className={"delta " + (g.valueDelta >= 0 ? "up" : "down")}>
+                          {fmtDelta(g.valueDelta)}
+                        </span>
+                      </td>
+                      <td className="num">
+                        <span className="cell-main">{fmtMoney(g.costPerResult)}</span>{" "}
+                        <span className={"delta " + (g.costDelta <= 0 ? "up" : "down")}>
+                          {fmtDelta(g.costDelta)}
+                        </span>
+                      </td>
                     </tr>
                     {g.rows.map((r) => (
                       <CampRow
                         row={r}
                         key={r.name}
+                        Logo={NET[r.network].Logo}
                         paused={!!validated[r.name] && r.action === "cut"}
                         boost={validated[r.name] ? reallocMap[r.name] : undefined}
                       />
@@ -338,11 +412,24 @@ function Fig({ k, v, good }: { k: string; v: string; good?: boolean }) {
   );
 }
 
-function CampRow({ row, paused, boost }: { row: Row; paused: boolean; boost?: number }) {
+function CampRow({
+  row,
+  paused,
+  boost,
+  Logo,
+}: {
+  row: Row;
+  paused: boolean;
+  boost?: number;
+  Logo: ({ size }: { size?: number }) => JSX.Element;
+}) {
   return (
     <tr className={"camp" + (paused ? " is-paused" : "")}>
       <td>
         <span className="camp-name">
+          <span className="camp-ic">
+            <Logo size={14} />
+          </span>
           <span className="nm">{row.name}</span>
           {paused && <span className="paused-chip">en pause</span>}
           {boost ? <span className="alloc-chip">+{fmtMoney(boost)}/j</span> : null}

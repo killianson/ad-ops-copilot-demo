@@ -33,14 +33,31 @@ html, body {
 .app {
   display: grid;
   grid-template-columns: 360px 1fr;
-  gap: 14px;
+  gap: 0;
   height: 100vh;
   padding: 14px;
 }
 
 @media (max-width: 880px) {
-  .app { grid-template-columns: 1fr; height: auto; }
+  .app { grid-template-columns: 1fr !important; gap: 14px; height: auto; }
+  .resizer { display: none; }
 }
+
+/* ---------- Séparateur redimensionnable ---------- */
+.resizer {
+  display: grid;
+  place-items: center;
+  cursor: col-resize;
+  user-select: none;
+}
+.resizer-grip {
+  width: 3px;
+  height: 42px;
+  border-radius: 3px;
+  background: var(--line);
+  transition: background 0.15s ease;
+}
+.resizer:hover .resizer-grip { background: var(--accent); }
 
 /* ---------- Copilot (gauche) ---------- */
 .copilot {
@@ -76,11 +93,31 @@ html, body {
 .cp-thread {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 8px 16px 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
 }
+/* Empêche tout débordement horizontal du contenu du chat. */
+.cp-thread,
+.cp-thread * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+/* Scrollbar custom (WebKit) */
+.cp-thread::-webkit-scrollbar { width: 8px; }
+.cp-thread::-webkit-scrollbar-track { background: transparent; }
+.cp-thread::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 8px;
+  border: 2px solid var(--panel);
+}
+.cp-thread::-webkit-scrollbar-thumb:hover { background: #34343e; }
 
 .bubble { font-size: 13.5px; line-height: 1.55; }
 .bubble.user {
@@ -213,12 +250,16 @@ html, body {
 }
 .cp-input input::placeholder { color: var(--muted-2); }
 .send {
+  flex-shrink: 0;
+  display: inline-grid; place-items: center;
   width: 32px; height: 32px; border-radius: 8px;
   border: none; cursor: pointer;
   background: var(--accent); color: #fff;
-  font-size: 15px; line-height: 1;
+  line-height: 1;
 }
+.send svg { display: block; }
 .send:hover { filter: brightness(1.1); }
+.send:disabled { opacity: 0.5; cursor: default; }
 
 /* ---------- Board (droite) ---------- */
 .board {
@@ -239,7 +280,16 @@ table.grid {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+  /* Largeurs figées → les colonnes ne bougent pas quand des chips/états
+     apparaissent après validation des actions. */
+  table-layout: fixed;
 }
+/* Largeurs de colonnes (Name prend le reste). */
+.grid col.c-status { width: 56px; }
+/* Colonne Status compacte : padding réduit pour que l'en-tête tienne. */
+.grid th:nth-child(2),
+.grid td:nth-child(2) { padding-left: 6px; padding-right: 6px; }
+.grid col.c-num { width: 150px; }
 .grid thead th {
   position: sticky; top: 0;
   background: var(--panel);
@@ -251,7 +301,10 @@ table.grid {
   border-bottom: 1px solid var(--line);
   z-index: 1;
 }
-.grid th.num, .grid td.num { text-align: right; }
+.grid th.num, .grid td.num {
+  text-align: right;
+  white-space: nowrap;
+}
 
 .grid tr.net td {
   padding: 9px 14px;
@@ -264,21 +317,38 @@ table.grid {
 .net-ic svg { display: block; }
 
 .grid tr.camp td {
-  padding: 9px 14px 9px 28px;
+  padding: 9px 14px;
   border-bottom: 1px solid var(--line-soft);
   vertical-align: middle;
+  transition: background 0.12s ease;
 }
+/* Surbrillance de la rangée au survol. */
+.grid tr.camp:hover td { background: rgba(255, 255, 255, 0.04); }
+/* Indentation accrue uniquement sur la 1re colonne (sous la plateforme). */
+.grid tr.camp td:first-child { padding-left: 48px; }
 .grid tr.camp.is-paused .nm { color: var(--muted); }
 
-.camp-name { display: flex; align-items: center; gap: 8px; }
-.camp-name .nm { color: var(--text); }
+.camp-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.camp-ic {
+  display: inline-flex; align-items: center; flex-shrink: 0;
+  opacity: 0.9;
+}
+.camp-ic svg { display: block; }
+.camp-name .nm {
+  color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .paused-chip {
+  flex-shrink: 0;
   font-size: 11px; color: var(--red);
   background: var(--tint-cut); padding: 1px 6px; border-radius: 5px;
+  white-space: nowrap;
 }
 .alloc-chip {
+  flex-shrink: 0;
   font-size: 11px; color: var(--green);
   background: var(--tint-scale); padding: 1px 6px; border-radius: 5px;
+  white-space: nowrap;
 }
 
 .cell-main { color: var(--text); }

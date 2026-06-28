@@ -1,5 +1,16 @@
 // Logos officiels (couleurs réelles) en SVG inline.
 
+export function ArrowUpIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 466.205 466.205" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="m416.193 170.894-.158-.158-162.986-163.2a25.37 25.37 0 0 0-4.267-3.413l-4.693-2.56-3.2-1.067h-2.347a30.095 30.095 0 0 0-10.88 0h-4.693l-3.627 1.92a25.827 25.827 0 0 0-5.547 4.053L50.169 170.736c-10.957 10.87-11.028 28.565-.158 39.522l.158.158c11.045 10.538 28.421 10.538 39.467 0l97.493-97.28c4.206-4.124 10.96-4.058 15.084.149a10.662 10.662 0 0 1 3.049 7.318v317.653c-.001 15.435 12.51 27.948 27.945 27.949 15.435.001 27.947-12.51 27.949-27.945V120.603c.083-5.89 4.925-10.599 10.815-10.516 2.74.039 5.361 1.13 7.318 3.049l97.067 97.28c11.073 10.674 28.607 10.674 39.68 0 10.957-10.87 11.028-28.565.157-39.522z"
+      />
+    </svg>
+  );
+}
+
 export function MetaLogo({ size = 16 }: { size?: number }) {
   // Forme officielle Meta (ruban infini), remplie d'un dégradé bleu.
   // viewBox cadré sur la forme (24x18) → width/height au même ratio = pas de déformation.
@@ -20,12 +31,35 @@ export function MetaLogo({ size = 16 }: { size?: number }) {
 }
 
 export function GoogleAdsLogo({ size = 16 }: { size?: number }) {
-  // Deux capsules (traits épais à bouts ronds) formant le Λ + cercle vert en bas-gauche.
+  // Glyphe officiel Google Ads (paths exacts du SVG de marque), wordmark texte retiré.
+  // viewBox recadré sur le glyphe seul (ratio ~1.07) → aucune déformation.
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-label="Google Ads">
-      <line x1="12" y1="3.5" x2="6" y2="20" stroke="#FBBC04" strokeWidth="6.4" strokeLinecap="round" />
-      <line x1="12" y1="3.5" x2="18" y2="20" stroke="#4285F4" strokeWidth="6.4" strokeLinecap="round" />
-      <circle cx="6" cy="20" r="3.4" fill="#34A853" />
+    <svg
+      width={Math.round(size * 1.07)}
+      height={size}
+      viewBox="0 0 250.8 234"
+      aria-label="Google Ads"
+    >
+      <path
+        fill="#3C8BD9"
+        d="M85.9,28.6c2.4-6.3,5.7-12.1,10.6-16.8c19.6-19.1,52-14.3,65.3,9.7c10,18.2,20.6,36,30.9,54c17.2,29.9,34.6,59.8,51.6,89.8c14.3,25.1-1.2,56.8-29.6,61.1c-17.4,2.6-33.7-5.4-42.7-21c-15.1-26.3-30.3-52.6-45.4-78.8c-0.3-0.6-0.7-1.1-1.1-1.6c-1.6-1.3-2.3-3.2-3.3-4.9c-6.7-11.8-13.6-23.5-20.3-35.2c-4.3-7.6-8.8-15.1-13.1-22.7c-3.9-6.8-5.7-14.2-5.5-22C83.6,36.2,84.1,32.2,85.9,28.6"
+      />
+      <path
+        fill="#FABC04"
+        d="M85.9,28.6c-0.9,3.6-1.7,7.2-1.9,11c-0.3,8.4,1.8,16.2,6,23.5C101,82,112,101,122.9,120c1,1.7,1.8,3.4,2.8,5c-6,10.4-12,20.7-18.1,31.1c-8.4,14.5-16.8,29.1-25.3,43.6c-0.4,0-0.5-0.2-0.6-0.5c-0.1-0.8,0.2-1.5,0.4-2.3c4.1-15,0.7-28.3-9.6-39.7c-6.3-6.9-14.3-10.8-23.5-12.1c-12-1.7-22.6,1.4-32.1,8.9c-1.7,1.3-2.8,3.2-4.8,4.2c-0.4,0-0.6-0.2-0.7-0.5c4.8-8.3,9.5-16.6,14.3-24.9C45.5,98.4,65.3,64,85.2,29.7C85.4,29.3,85.7,29,85.9,28.6"
+      />
+      <path
+        fill="#34A852"
+        d="M11.8,158c1.9-1.7,3.7-3.5,5.7-5.1c24.3-19.2,60.8-5.3,66.1,25.1c1.3,7.3,0.6,14.3-1.6,21.3c-0.1,0.6-0.2,1.1-0.4,1.7c-0.9,1.6-1.7,3.3-2.7,4.9c-8.9,14.7-22,22-39.2,20.9C20,225.4,4.5,210.6,1.8,191c-1.3-9.5,0.6-18.4,5.5-26.6c1-1.8,2.2-3.4,3.3-5.2C11.1,158.8,10.9,158,11.8,158"
+      />
+      <path
+        fill="#FABC04"
+        d="M11.8,158c-0.4,0.4-0.4,1.1-1.1,1.2c-0.1-0.7,0.3-1.1,0.7-1.6L11.8,158"
+      />
+      <path
+        fill="#E1C025"
+        d="M81.6,201c-0.4-0.7,0-1.2,0.4-1.7c0.1,0.1,0.3,0.3,0.4,0.4L81.6,201"
+      />
     </svg>
   );
 }
@@ -37,7 +71,7 @@ export function TikTokLogo({ size = 16 }: { size?: number }) {
     <svg width={size} height={size} viewBox="0 0 24 24" aria-label="TikTok">
       <path d={d} fill="#25F4EE" transform="translate(-1 -1)" />
       <path d={d} fill="#FE2C55" transform="translate(1 1)" />
-      <path d={d} fill="#FFFFFF" />
+      <path d={d} fill="#000000" />
     </svg>
   );
 }

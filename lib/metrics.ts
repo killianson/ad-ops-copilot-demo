@@ -99,6 +99,11 @@ export type NetworkGroup = {
   revenue: number;
   conversions: number;
   costPerResult: number;
+  // Deltas moyens de la plateforme (vs période précédente) — calculés, pas inventés.
+  spendDelta: number;
+  resultsDelta: number;
+  valueDelta: number;
+  costDelta: number;
 };
 
 export function groupByNetwork(rows: Row[]): NetworkGroup[] {
@@ -109,13 +114,22 @@ export function groupByNetwork(rows: Row[]): NetworkGroup[] {
       const spend = sum(gr, (r) => r.spend);
       const revenue = sum(gr, (r) => r.revenue);
       const conversions = sum(gr, (r) => r.conversions);
+      const prevSpend = sum(gr, (r) => r.prevSpend);
+      const prevRevenue = sum(gr, (r) => r.prevRevenue);
+      const prevConversions = sum(gr, (r) => r.prevConversions);
+      const costPerResult = conversions ? spend / conversions : 0;
+      const prevCost = prevConversions ? prevSpend / prevConversions : 0;
       return {
         network,
         rows: gr,
         spend,
         revenue,
         conversions,
-        costPerResult: conversions ? spend / conversions : 0,
+        costPerResult,
+        spendDelta: pct(spend, prevSpend),
+        resultsDelta: pct(conversions, prevConversions),
+        valueDelta: pct(revenue, prevRevenue),
+        costDelta: pct(costPerResult, prevCost),
       };
     })
     .filter((g) => g.rows.length > 0);
@@ -154,9 +168,9 @@ export function buildNarrationPrompt(rows: Row[], agg: Aggregates): string {
     "CHIFFRES DÉJÀ CALCULÉS (utilise EXCLUSIVEMENT ceux-ci, n'invente aucun nombre) :\n" +
     `- Dépense totale : ${Math.round(agg.totalSpend)}€\n` +
     `- Results Value (CA) total : ${Math.round(agg.totalRevenue)}€\n` +
-    `- ROAS blended : ${agg.blended.toFixed(2)}\n` +
+    `- blended ROAS : ${agg.blended.toFixed(2)}\n` +
     `- Budget libéré par les pauses : ${Math.round(agg.freedBudget)}€\n` +
-    `- ROAS blended projeté après pauses : ${agg.projectedBlended.toFixed(2)}\n` +
+    `- blended ROAS projeté après pauses : ${agg.projectedBlended.toFixed(2)}\n` +
     `- Réallocation déjà calculée du budget libéré :\n${realloc}\n\n` +
     `Campagnes :\n${table}\n\n` +
     "Rédige un message Slack court (français) pour l'équipe média :\n" +
@@ -166,6 +180,46 @@ export function buildNarrationPrompt(rows: Row[], agg: Aggregates): string {
     "4. L'impact projeté (utilise le ROAS projeté fourni).\n\n" +
     "Emojis sobres, **gras** pour les actions, pas de préambule. " +
     "Utilise UNIQUEMENT les chiffres ci-dessus. Réponds seulement avec le message Slack."
+  );
+}
+
+// Variante "agent" : on DONNE à Claude tous les chiffres ET la liste des
+// candidats d'actions (pauses + boosts chiffrés par le moteur). Claude choisit
+// lesquels recommander et rédige le Slack, mais n'invente ni nombre ni campagne.
+export function buildAgentPrompt(rows: Row[], agg: Aggregates): string {
+  const table = rows
+    .map(
+      (r) =>
+        `- ${r.name} (${r.network}) : ROAS ${r.roas.toFixed(2)}, cost/result ${Math.round(r.costPerResult)}€, ` +
+        `dépense ${Math.round(r.spend)}€ → reco moteur : ${r.action}`,
+    )
+    .join("\n");
+  const pauseCandidates =
+    agg.cut.map((c) => `  • ${c.name} (ROAS ${c.roas.toFixed(2)})`).join("\n") || "  • (aucune)";
+  const boostCandidates =
+    redeploy(agg)
+      .map((r) => `  • ${r.name} → +${r.amount}€/j`)
+      .join("\n") || "  • (aucune)";
+  return (
+    `ROAS cible = ${TARGET_ROAS}.\n\n` +
+    "CHIFFRES DÉJÀ CALCULÉS (utilise EXCLUSIVEMENT ceux-ci, n'invente aucun nombre) :\n" +
+    `- Dépense totale : ${Math.round(agg.totalSpend)}€\n` +
+    `- Results Value (CA) total : ${Math.round(agg.totalRevenue)}€\n` +
+    `- blended ROAS : ${agg.blended.toFixed(2)}\n` +
+    `- Budget libéré par les pauses : ${Math.round(agg.freedBudget)}€\n` +
+    `- blended ROAS projeté après pauses : ${agg.projectedBlended.toFixed(2)}\n\n` +
+    `Campagnes :\n${table}\n\n` +
+    "CANDIDATS D'ACTIONS (choisis lesquels recommander, reprends les noms EXACTS) :\n" +
+    `Pauses possibles :\n${pauseCandidates}\n` +
+    `Boosts possibles (montants imposés par le moteur) :\n${boostCandidates}\n\n` +
+    "Appelle l'outil submit_recommendation avec :\n" +
+    "1. narration : un message Slack court (français) pour l'équipe média — état du compte vs " +
+    "ROAS cible, gagnants à scaler / sous-perfs à couper, réallocations chiffrées, impact projeté. " +
+    "Emojis sobres, **gras** pour les actions, pas de préambule.\n" +
+    "2. actions : la liste des actions recommandées, choisies PARMI les candidats ci-dessus " +
+    '(type "pause" ou "boost", nom EXACT). N\'invente aucune campagne hors de cette liste.\n\n' +
+    "Pour les boosts, NE mets PAS de montant : le moteur l'impose. " +
+    "Choisis seulement quoi pauser et quoi scaler."
   );
 }
 
