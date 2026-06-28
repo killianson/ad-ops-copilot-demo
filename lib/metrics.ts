@@ -1,6 +1,11 @@
 // Toute l'arithmétique vit ici — par campagne ET agrégats. Déterministe.
 // Le LLM (côté serveur) ne fait QUE la narration : il reçoit ces chiffres et
 // rédige la reco, sans en inventer aucun.
+//
+// Colonnes du tableau (mêmes que le dashboard Massive Dynamic) :
+//   Name · Status · Spend · Results · Results Value · Cost / Result
+// Le ROAS n'est pas une colonne affichée : il sert en interne à décider
+// scale / watch / cut (couleur de ligne + icône de statut).
 
 import type { Campaign, Network } from "./data";
 
@@ -8,10 +13,11 @@ export type Action = "scale" | "watch" | "cut";
 
 export type Row = Campaign & {
   roas: number;
-  cpa: number;
-  ctr: number;
+  costPerResult: number; // = CPA
   spendDelta: number;
-  revenueDelta: number;
+  resultsDelta: number; // delta conversions
+  valueDelta: number; // delta CA (results value)
+  costDelta: number; // delta cost/result (baisse = bien)
   action: Action;
 };
 
@@ -25,17 +31,22 @@ export function classify(roas: number): Action {
   return "watch";
 }
 
+const pct = (now: number, prev: number) => (prev ? ((now - prev) / prev) * 100 : 0);
+
 export function computeRows(cs: Campaign[]): Row[] {
   return cs
     .map((c) => {
       const roas = c.spend ? c.revenue / c.spend : 0;
+      const costPerResult = c.conversions ? c.spend / c.conversions : 0;
+      const prevCost = c.prevConversions ? c.prevSpend / c.prevConversions : 0;
       return {
         ...c,
         roas,
-        cpa: c.conversions ? c.spend / c.conversions : 0,
-        ctr: c.impressions ? c.clicks / c.impressions : 0,
-        spendDelta: c.prevSpend ? ((c.spend - c.prevSpend) / c.prevSpend) * 100 : 0,
-        revenueDelta: c.prevRevenue ? ((c.revenue - c.prevRevenue) / c.prevRevenue) * 100 : 0,
+        costPerResult,
+        spendDelta: pct(c.spend, c.prevSpend),
+        resultsDelta: pct(c.conversions, c.prevConversions),
+        valueDelta: pct(c.revenue, c.prevRevenue),
+        costDelta: pct(costPerResult, prevCost),
         action: classify(roas),
       };
     })
@@ -45,6 +56,8 @@ export function computeRows(cs: Campaign[]): Row[] {
 export type Aggregates = {
   totalSpend: number;
   totalRevenue: number;
+  totalConversions: number;
+  costPerResult: number;
   blended: number;
   freedBudget: number;
   projectedBlended: number;
@@ -58,6 +71,7 @@ const sum = <T>(arr: T[], f: (x: T) => number) => arr.reduce((a, x) => a + f(x),
 export function computeAggregates(rows: Row[]): Aggregates {
   const totalSpend = sum(rows, (r) => r.spend);
   const totalRevenue = sum(rows, (r) => r.revenue);
+  const totalConversions = sum(rows, (r) => r.conversions);
   const cut = rows.filter((r) => r.action === "cut");
   const scale = rows.filter((r) => r.action === "scale");
   const watch = rows.filter((r) => r.action === "watch");
@@ -67,6 +81,8 @@ export function computeAggregates(rows: Row[]): Aggregates {
   return {
     totalSpend,
     totalRevenue,
+    totalConversions,
+    costPerResult: totalConversions ? totalSpend / totalConversions : 0,
     blended: totalSpend ? totalRevenue / totalSpend : 0,
     freedBudget,
     projectedBlended: keptSpend ? keptRevenue / keptSpend : 0,
@@ -81,7 +97,8 @@ export type NetworkGroup = {
   rows: Row[];
   spend: number;
   revenue: number;
-  roas: number;
+  conversions: number;
+  costPerResult: number;
 };
 
 export function groupByNetwork(rows: Row[]): NetworkGroup[] {
@@ -91,7 +108,15 @@ export function groupByNetwork(rows: Row[]): NetworkGroup[] {
       const gr = rows.filter((r) => r.network === network);
       const spend = sum(gr, (r) => r.spend);
       const revenue = sum(gr, (r) => r.revenue);
-      return { network, rows: gr, spend, revenue, roas: spend ? revenue / spend : 0 };
+      const conversions = sum(gr, (r) => r.conversions);
+      return {
+        network,
+        rows: gr,
+        spend,
+        revenue,
+        conversions,
+        costPerResult: conversions ? spend / conversions : 0,
+      };
     })
     .filter((g) => g.rows.length > 0);
 }
@@ -117,7 +142,7 @@ export function buildNarrationPrompt(rows: Row[], agg: Aggregates): string {
   const table = rows
     .map(
       (r) =>
-        `- ${r.name} (${r.network}) : ROAS ${r.roas.toFixed(2)}, CPA ${Math.round(r.cpa)}€, ` +
+        `- ${r.name} (${r.network}) : ROAS ${r.roas.toFixed(2)}, cost/result ${Math.round(r.costPerResult)}€, ` +
         `dépense ${Math.round(r.spend)}€ → action déjà décidée : ${r.action}`,
     )
     .join("\n");
@@ -128,7 +153,7 @@ export function buildNarrationPrompt(rows: Row[], agg: Aggregates): string {
     `ROAS cible = ${TARGET_ROAS}.\n\n` +
     "CHIFFRES DÉJÀ CALCULÉS (utilise EXCLUSIVEMENT ceux-ci, n'invente aucun nombre) :\n" +
     `- Dépense totale : ${Math.round(agg.totalSpend)}€\n` +
-    `- CA total : ${Math.round(agg.totalRevenue)}€\n` +
+    `- Results Value (CA) total : ${Math.round(agg.totalRevenue)}€\n` +
     `- ROAS blended : ${agg.blended.toFixed(2)}\n` +
     `- Budget libéré par les pauses : ${Math.round(agg.freedBudget)}€\n` +
     `- ROAS blended projeté après pauses : ${agg.projectedBlended.toFixed(2)}\n` +
@@ -147,4 +172,4 @@ export function buildNarrationPrompt(rows: Row[], agg: Aggregates): string {
 export const SYSTEM =
   "Tu es un copilote ad-ops senior pour une équipe média qui orchestre des budgets " +
   "publicitaires à plusieurs millions sur Meta, Google et TikTok. Tu augmentes l'operator : " +
-  "tu raisonnes en ROAS, CPA, media mix et pacing, tu es concis, chiffré et orienté action.";
+  "tu raisonnes en ROAS, cost/result, media mix et pacing, tu es concis, chiffré et orienté action.";

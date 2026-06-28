@@ -10,15 +10,17 @@ import {
   type Row,
   type Action,
 } from "@/lib/metrics";
+import { MetaLogo, GoogleAdsLogo, TikTokLogo } from "./logos";
 
 const fmtMoney = (n: number) => "€" + Math.round(n).toLocaleString("fr-FR");
+const fmtInt = (n: number) => Math.round(n).toLocaleString("fr-FR");
 const fmtRoas = (n: number) => n.toFixed(2);
-const fmtDelta = (n: number) => (n >= 0 ? "+" : "") + n.toFixed(0) + "%";
+const fmtDelta = (n: number) => "(" + (n >= 0 ? "+" : "") + n.toFixed(0) + "%)";
 
-const NET: Record<Network, { label: string; icon: string; color: string }> = {
-  Meta: { label: "Meta Ads", icon: "◎", color: "#5b8def" },
-  Google: { label: "Google Ads", icon: "▲", color: "#e9a23b" },
-  TikTok: { label: "TikTok Ads", icon: "♪", color: "#26c0c7" },
+const NET: Record<Network, { label: string; Logo: ({ size }: { size?: number }) => JSX.Element }> = {
+  Meta: { label: "Meta Ads", Logo: MetaLogo },
+  Google: { label: "Google Ads", Logo: GoogleAdsLogo },
+  TikTok: { label: "TikTok Ads", Logo: TikTokLogo },
 };
 
 const STATUS: Record<Action, { icon: string; cls: string }> = {
@@ -29,7 +31,7 @@ const STATUS: Record<Action, { icon: string; cls: string }> = {
 
 const STEPS = [
   "Récupération des performances du jour…",
-  "Calcul des KPI (ROAS, CPA, budget libéré)…",
+  "Calcul des KPI (results, cost/result, budget libéré)…",
   "Synthèse et recommandation de réallocation…",
 ];
 
@@ -136,9 +138,7 @@ export default function Page() {
 
         <div className="cp-thread">
           {!userMsg && (
-            <div className="empty-hint">
-              Pose une question pour lancer le daily check.
-            </div>
+            <div className="empty-hint">Pose une question pour lancer le daily check.</div>
           )}
 
           {userMsg && <div className="bubble user">{userMsg}</div>}
@@ -157,7 +157,7 @@ export default function Page() {
             <div className="figures">
               <div className="fg-head">🧮 Chiffres clés — calculés, pas générés</div>
               <Fig k="Dépense totale" v={fmtMoney(agg.totalSpend)} />
-              <Fig k="CA total" v={fmtMoney(agg.totalRevenue)} />
+              <Fig k="Results value (CA)" v={fmtMoney(agg.totalRevenue)} />
               <Fig k="ROAS blended" v={fmtRoas(agg.blended)} />
               <Fig k="Budget libéré (pauses)" v={fmtMoney(agg.freedBudget)} />
               <Fig k="ROAS projeté" v={fmtRoas(agg.projectedBlended)} good />
@@ -232,43 +232,46 @@ export default function Page() {
                 <th>Name</th>
                 <th>Status</th>
                 <th className="num">Spend</th>
-                <th className="num">Revenue</th>
-                <th className="num">ROAS</th>
-                <th className="num">CPA</th>
+                <th className="num">Results</th>
+                <th className="num">Results Value</th>
+                <th className="num">Cost / Result</th>
               </tr>
             </thead>
             <tbody>
-              {groups.map((g) => (
-                <Fragment key={g.network}>
-                  <tr className="net">
-                    <td>
-                      <span className="net-name">
-                        <span className="net-ic" style={{ color: NET[g.network].color }}>
-                          {NET[g.network].icon}
+              {groups.map((g) => {
+                const Logo = NET[g.network].Logo;
+                return (
+                  <Fragment key={g.network}>
+                    <tr className="net">
+                      <td>
+                        <span className="net-name">
+                          <span className="net-ic">
+                            <Logo size={16} />
+                          </span>
+                          {NET[g.network].label}
                         </span>
-                        {NET[g.network].label}
-                      </span>
-                    </td>
-                    <td></td>
-                    <td className="num">{fmtMoney(g.spend)}</td>
-                    <td className="num">{fmtMoney(g.revenue)}</td>
-                    <td className="num">{fmtRoas(g.roas)}</td>
-                    <td className="num"></td>
-                  </tr>
-                  {g.rows.map((r) => (
-                    <CampRow row={r} key={r.name} />
-                  ))}
-                </Fragment>
-              ))}
+                      </td>
+                      <td></td>
+                      <td className="num">{fmtMoney(g.spend)}</td>
+                      <td className="num">{fmtInt(g.conversions)}</td>
+                      <td className="num">{fmtMoney(g.revenue)}</td>
+                      <td className="num">{fmtMoney(g.costPerResult)}</td>
+                    </tr>
+                    {g.rows.map((r) => (
+                      <CampRow row={r} key={r.name} />
+                    ))}
+                  </Fragment>
+                );
+              })}
             </tbody>
             <tfoot>
               <tr>
                 <td className="total-label">Total — {rows.length} campagnes</td>
                 <td></td>
                 <td className="num">{fmtMoney(agg.totalSpend)}</td>
+                <td className="num">{fmtInt(agg.totalConversions)}</td>
                 <td className="num">{fmtMoney(agg.totalRevenue)}</td>
-                <td className="num">{fmtRoas(agg.blended)}</td>
-                <td className="num"></td>
+                <td className="num">{fmtMoney(agg.costPerResult)}</td>
               </tr>
             </tfoot>
           </table>
@@ -291,30 +294,37 @@ function CampRow({ row }: { row: Row }) {
   return (
     <tr className={"camp " + row.action}>
       <td>
-        <div className="camp-name">
-          <span className="nm">{row.name}</span>
-          <span className="sub">{row.conversions} conversions</span>
-        </div>
+        <span className="nm">{row.name}</span>
       </td>
       <td>
         <span className={"status " + STATUS[row.action].cls}>{STATUS[row.action].icon}</span>
       </td>
       <td className="num">
-        <span className="cell-main">{fmtMoney(row.spend)}</span>
+        <span className="cell-main">{fmtMoney(row.spend)}</span>{" "}
         <span className={"delta " + (row.spendDelta >= 0 ? "up" : "down")}>
           {fmtDelta(row.spendDelta)}
         </span>
       </td>
       <td className="num">
-        <span className="cell-main">{fmtMoney(row.revenue)}</span>
-        <span className={"delta " + (row.revenueDelta >= 0 ? "up" : "down")}>
-          {fmtDelta(row.revenueDelta)}
+        <span className="cell-main">{fmtInt(row.conversions)}</span>{" "}
+        <span className={"delta " + (row.resultsDelta >= 0 ? "up" : "down")}>
+          {fmtDelta(row.resultsDelta)}
+        </span>
+        <div className="sub-cell">purchases</div>
+      </td>
+      <td className="num">
+        <span className="cell-main">{fmtMoney(row.revenue)}</span>{" "}
+        <span className={"delta " + (row.valueDelta >= 0 ? "up" : "down")}>
+          {fmtDelta(row.valueDelta)}
         </span>
       </td>
       <td className="num">
-        <span className={"roas " + row.action}>{fmtRoas(row.roas)}</span>
+        <span className="cell-main">{fmtMoney(row.costPerResult)}</span>{" "}
+        <span className={"delta " + (row.costDelta <= 0 ? "up" : "down")}>
+          {fmtDelta(row.costDelta)}
+        </span>
+        <div className="sub-cell">per purchase</div>
       </td>
-      <td className="num">{fmtMoney(row.cpa)}</td>
     </tr>
   );
 }
