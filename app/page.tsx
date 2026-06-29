@@ -273,10 +273,7 @@ export default function Page() {
         {!running && (
           <div
             className="suggestion"
-            onClick={() => {
-              setQuery(SUGGESTION);
-              run(SUGGESTION);
-            }}
+            onClick={() => run(SUGGESTION)}
             title="Cliquer pour lancer"
           >
             <span className="sug-ic">💡</span>
